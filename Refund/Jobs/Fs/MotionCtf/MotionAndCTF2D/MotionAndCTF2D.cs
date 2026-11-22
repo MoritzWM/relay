@@ -386,7 +386,7 @@ public class MotionAndCTF2D : WarpToolsJobGpu, IClusterJob
         result["settings"] = Space.GetRelativePath(Path.Combine(Path.GetFullPath(DirectoryPath), "processing.settings"));
 
         result["m_grid"] = $"{MotionGridDims.X}x{MotionGridDims.Y}x{MotionGridDims.Z}";
-        result["c_grid"] = $"{CTFGridDims.X}x{CTFGridDims.Y}";
+        result["c_grid"] = $"{CTFGridDims.X}x{CTFGridDims.Y}x1";
 
         result["out_thumbnails"] = "256";
 
