@@ -138,7 +138,7 @@ public sealed class ClusterQueue : JobQueue
             "{{\\s*script_path_abs\\s*}}",
             scriptPath)
             .ReplaceRegex("{{\\s*username\\s*}}", username ?? string.Empty);
-        string output = await ExecuteOnCluster(command);
+        string output = await ExecuteOnCluster(command, username);
         onRawOutput?.Invoke(output);
         return ParseClusterJobId(output);
     }
@@ -451,7 +451,7 @@ public sealed class ClusterQueue : JobQueue
     public override ReadOnlyJobQueue AsReadOnly() =>
         ReadOnlyCache.GetValue(this, queue => new ReadOnlyClusterQueue(queue));
 
-    private async Task<string> ExecuteOnCluster(string command)
+    private async Task<string> ExecuteOnCluster(string command, string username = "")
     {
         var commandGate = ClusterCommandGates.GetOrAdd(
             Id,
@@ -461,7 +461,7 @@ public sealed class ClusterQueue : JobQueue
 
         try
         {
-            return await ExecuteClusterCommand(command);
+            return await ExecuteClusterCommand(command, username);
         }
         finally
         {
@@ -469,11 +469,13 @@ public sealed class ClusterQueue : JobQueue
         }
     }
 
-    private async Task<string> ExecuteClusterCommand(string command)
+    private async Task<string> ExecuteClusterCommand(string command, string username)
     {
         string fullCommand = string.IsNullOrWhiteSpace(SendCommmandTemplate)
             ? command
-            : SendCommmandTemplate.ReplaceRegex("{{\\s*command\\s*}}", command);
+            : SendCommmandTemplate
+                .ReplaceRegex("{{\\s*username\\s*}}", username ?? string.Empty)
+                .ReplaceRegex("{{\\s*command\\s*}}", command);
         using var process = new Process();
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
 

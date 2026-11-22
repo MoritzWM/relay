@@ -203,7 +203,7 @@ public partial class QueueEditor : IDisposable
 
     private IEnumerable<string> GetCommandTemplateVariables()
     {
-        return ["command"];
+        return ["command", "username"];
     }
 
     private IEnumerable<string> GetSubmitJobTemplateVariables()
