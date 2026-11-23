@@ -124,6 +124,22 @@ public class ClusterQueueBatchTests
         }
     }
 
+    [Fact]
+    public async Task StatusAndCancelCommandsExpandUsernameInTheSendCommand()
+    {
+        var queue = new ClusterQueue
+        {
+            SchedulerType = ClusterScheduler.Custom,
+            SendCommmandTemplate = "echo {{ username }}:{{ command }}",
+            StatusJobTemplate = "printf RUNNING",
+            JobStatusParseTemplateRunning = "alice:printf RUNNING"
+        };
+
+        var observation = await queue.ObserveReceipt("123", "alice");
+
+        Assert.Equal(BackendObservationKind.Running, observation.Kind);
+    }
+
     [Theory]
     [InlineData("123\n456\n", new[] { "123", "456" })]
     [InlineData("123\r\n456\r\n", new[] { "123", "456" })]

@@ -99,7 +99,8 @@ public sealed class RelayExecutionOperations : IExecutionOperations
             ExecutionBackendKind.Local => ObserveLocal(attempt),
             ExecutionBackendKind.Managed => _managed.Observe(attempt),
             ExecutionBackendKind.ExternalScheduler =>
-                await Queue(attempt.BackendConfiguration).ObserveReceipt(attempt.Receipt.Id),
+                await Queue(attempt.BackendConfiguration).ObserveReceipt(
+                    attempt.Receipt.Id, SubmittedBy(attempt)),
             _ => throw new ArgumentOutOfRangeException(nameof(attempt.BackendKind))
         };
     }
@@ -116,7 +117,7 @@ public sealed class RelayExecutionOperations : IExecutionOperations
             case ExecutionBackendKind.Managed:
                 return await _managed.CancelAsync(attempt, cancellationToken);
             case ExecutionBackendKind.ExternalScheduler:
-                await Queue(attempt.BackendConfiguration).CancelReceipt(receipt.Id);
+                await Queue(attempt.BackendConfiguration).CancelReceipt(receipt.Id, SubmittedBy(attempt));
                 return new BackendObservation(
                     BackendObservationKind.Indeterminate,
                     "The scheduler accepted the cancellation request.");
@@ -207,7 +208,8 @@ public sealed class RelayExecutionOperations : IExecutionOperations
         CancellationToken cancellationToken)
     {
         var queue = Queue(attempt.WorkerBackendConfiguration);
-        var observed = await queue.ObserveReceipts(receipts.Select(receipt => receipt.Id));
+        var observed = await queue.ObserveReceipts(
+            receipts.Select(receipt => receipt.Id), SubmittedBy(attempt));
         var observations = new List<WorkerObservation>(receipts.Count);
 
         foreach (var receipt in receipts)
@@ -226,7 +228,8 @@ public sealed class RelayExecutionOperations : IExecutionOperations
         CancellationToken cancellationToken)
     {
         var queue = Queue(attempt.WorkerBackendConfiguration);
-        await queue.CancelReceipts(receipts.Select(receipt => receipt.Id));
+        await queue.CancelReceipts(
+            receipts.Select(receipt => receipt.Id), SubmittedBy(attempt));
         return receipts.Select(receipt => new WorkerObservation(
             receipt.Id,
             BackendObservationKind.Indeterminate,
@@ -419,6 +422,10 @@ public sealed class RelayExecutionOperations : IExecutionOperations
         _findJob(attempt.Job)
         ?? throw new InvalidOperationException(
             $"Job {attempt.Job.ProjectId}/{attempt.Job.SpaceId}/{attempt.Job.JobId} no longer exists.");
+
+    /// <summary>The submitting user, needed to expand {{username}} in the send command for status and cancel calls.</summary>
+    private string SubmittedBy(ExecutionAttemptSnapshot attempt) =>
+        _findJob(attempt.Job)?.SubmittedByUsername ?? string.Empty;
 
     private static ClusterQueue Queue(string configuration)
     {

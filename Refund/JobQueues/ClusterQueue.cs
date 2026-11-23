@@ -178,7 +178,7 @@ public sealed class ClusterQueue : JobQueue
         }
     }
 
-    public async Task<BackendObservation> ObserveReceipt(string receiptId)
+    public async Task<BackendObservation> ObserveReceipt(string receiptId, string username = "")
     {
         if (IsManaged)
             throw new InvalidOperationException("Managed execution is observed by relay-runner.");
@@ -196,7 +196,7 @@ public sealed class ClusterQueue : JobQueue
         try
         {
             active = ParseBackendObservation(await ExecuteOnCluster(
-                ReplaceJobId(StatusJobTemplate, receiptId)));
+                ReplaceJobId(StatusJobTemplate, receiptId), username));
         }
         catch (Exception exception)
         {
@@ -223,7 +223,7 @@ public sealed class ClusterQueue : JobQueue
         try
         {
             terminal = ParseBackendObservation(await ExecuteOnCluster(
-                ReplaceJobId(terminalTemplate, receiptId)));
+                ReplaceJobId(terminalTemplate, receiptId), username));
         }
         catch (Exception exception)
         {
@@ -245,7 +245,7 @@ public sealed class ClusterQueue : JobQueue
             : terminal;
     }
 
-    public async Task CancelReceipt(string receiptId)
+    public async Task CancelReceipt(string receiptId, string username = "")
     {
         if (IsManaged)
             throw new InvalidOperationException("Managed execution is canceled through relay-runner.");
@@ -254,7 +254,7 @@ public sealed class ClusterQueue : JobQueue
         if (string.IsNullOrWhiteSpace(AbortJobTemplate))
             throw new InvalidOperationException($"Queue \"{Alias}\" has no cancellation command.");
 
-        await ExecuteOnCluster(ReplaceJobId(AbortJobTemplate, receiptId));
+        await ExecuteOnCluster(ReplaceJobId(AbortJobTemplate, receiptId), username);
     }
 
     internal BackendObservation ParseBackendObservation(string output) =>
@@ -349,7 +349,8 @@ public sealed class ClusterQueue : JobQueue
     }
 
     public async Task<IReadOnlyDictionary<string, BackendObservation>> ObserveReceipts(
-        IEnumerable<string> receiptIds)
+        IEnumerable<string> receiptIds,
+        string username = "")
     {
         string[] ids = receiptIds
             .Where(id => !string.IsNullOrWhiteSpace(id))
@@ -359,16 +360,16 @@ public sealed class ClusterQueue : JobQueue
             return new Dictionary<string, BackendObservation>();
 
         if (string.IsNullOrWhiteSpace(ListJobsTemplate))
-            return await ObserveReceiptsIndividually(ids);
+            return await ObserveReceiptsIndividually(ids, username);
 
         string output;
         try
         {
-            output = await ExecuteOnCluster(ListJobsTemplate);
+            output = await ExecuteOnCluster(ListJobsTemplate, username);
         }
         catch
         {
-            return await ObserveReceiptsIndividually(ids);
+            return await ObserveReceiptsIndividually(ids, username);
         }
 
         var active = ParseActiveReceipts(output);
@@ -383,7 +384,7 @@ public sealed class ClusterQueue : JobQueue
                 BackendObservationKind.Canceled)
                 observations[id] = observation;
             else
-                observations[id] = await ObserveReceipt(id);
+                observations[id] = await ObserveReceipt(id, username);
         }
 
         return observations;
@@ -409,7 +410,7 @@ public sealed class ClusterQueue : JobQueue
         return result;
     }
 
-    public async Task CancelReceipts(IEnumerable<string> receiptIds)
+    public async Task CancelReceipts(IEnumerable<string> receiptIds, string username = "")
     {
         string[] ids = receiptIds
             .Where(id => !string.IsNullOrWhiteSpace(id))
@@ -420,14 +421,14 @@ public sealed class ClusterQueue : JobQueue
 
         if (string.IsNullOrWhiteSpace(CancelManyJobsTemplate))
         {
-            await Task.WhenAll(ids.Select(CancelReceipt));
+            await Task.WhenAll(ids.Select(id => CancelReceipt(id, username)));
             return;
         }
 
         string command = CancelManyJobsTemplate.ReplaceRegex(
             "{{\\s*job_ids\\s*}}",
             string.Join(" ", ids));
-        await ExecuteOnCluster(command);
+        await ExecuteOnCluster(command, username);
     }
 
     internal string ParseClusterJobId(string output) =>
@@ -555,10 +556,11 @@ public sealed class ClusterQueue : JobQueue
         template.ReplaceRegex("{{\\s*job_id\\s*}}", receiptId);
 
     private async Task<IReadOnlyDictionary<string, BackendObservation>> ObserveReceiptsIndividually(
-        IEnumerable<string> receiptIds)
+        IEnumerable<string> receiptIds,
+        string username)
     {
         var pairs = await Task.WhenAll(receiptIds.Select(async id =>
-            new KeyValuePair<string, BackendObservation>(id, await ObserveReceipt(id))));
+            new KeyValuePair<string, BackendObservation>(id, await ObserveReceipt(id, username))));
         return pairs.ToDictionary(pair => pair.Key, pair => pair.Value);
     }
 }
