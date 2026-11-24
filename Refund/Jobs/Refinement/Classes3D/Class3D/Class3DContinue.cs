@@ -185,7 +185,8 @@ public class Class3DContinue : Class3D
         if (IsPooled)
             ApplyPoolArguments(result);
 
-        return result;
+        // Continuing this job's own stopped run reads its own optimiser file rather than the predecessor's.
+        return IsContinuingRun ? ToContinuationArguments(result, AdditionalArguments) : result;
     }
 
     /// <summary>

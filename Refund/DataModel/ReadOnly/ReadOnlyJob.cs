@@ -446,6 +446,12 @@ public abstract class ReadOnlyJob : IIdentifiable, IAudited, IAnnotated, IViewIt
     /// Resumable jobs can continue from where they left off if aborted or failed.
     /// </summary>
     public bool IsResumable => _job.IsResumable;
+
+    /// <summary>Whether this job type can continue a stopped run in place instead of starting over.</summary>
+    public bool SupportsContinuation => _job.SupportsContinuation;
+
+    /// <summary>Null if the stopped job can be continued now; otherwise the reason it can't.</summary>
+    public string WhyCannotContinue() => _job.WhyCannotContinue();
     
     /// <summary>
     /// Gets a value indicating whether this job processes data in multiple iterations.

@@ -526,6 +526,71 @@ public partial class MenuActionService
 
         } // end if (!isBrowseMode) — resume with Finalize and Download card, which are allowed
 
+        #region Continue
+
+        {
+            // Stopped jobs whose type can resume in place, e.g. RELION refinements that hit a cluster time limit.
+            if (jobs.Any(j => j.SupportsContinuation &&
+                              j.Status is JobStatus.Failed or JobStatus.Aborted or JobStatus.Interrupted))
+            {
+                var actionContinue = new MenuAction()
+                {
+                    Name = jobs.Count() > 1 ?
+                               $"Continue {jobs.Count()} jobs" :
+                               "Continue job",
+                    NeedsConfirmation = false,
+                    Appearance = ButtonAppearance.Primary,
+                    TextColor = null,
+                    BorderColor = null,
+                    IconSmall = new Icons.Regular.Size16.Play(),
+                    IconLarge = new Icons.Regular.Size20.Play()
+                };
+
+                var reasons = jobs.Select(j => j.WhyCannotContinue()).Where(r => r != null).Distinct().ToList();
+                if (reasons.Count > 0)
+                {
+                    actionContinue.IsDisabled = true;
+                    actionContinue.DisabledBecause = jobs.Count() > 1
+                        ? "Can't continue some jobs: " + string.Join(" ", reasons)
+                        : "Can't continue: " + reasons[0];
+                }
+                else
+                {
+                    var commonQueues = jobs.Select(j => _dataManager.ClusterQueues.Where(q => (q.QueueType & j.QueueType) != 0))
+                                           .Aggregate((a, b) => a.Intersect(b))
+                                           .ToList();
+
+                    if (commonQueues.Count == 0)
+                    {
+                        actionContinue.IsDisabled = true;
+                        actionContinue.DisabledBecause = "Can't continue because there is no queue compatible with all selected jobs";
+                    }
+                    else
+                        foreach (var queue in commonQueues)
+                            actionContinue.SubActions.Add(new MenuAction
+                            {
+                                Name = $"Continue in {queue.Alias}",
+                                Action = async () =>
+                                {
+                                    foreach (var job in jobs)
+                                        try
+                                        {
+                                            await _dataManager.ContinueJob(_session.User, job, queue);
+                                        }
+                                        catch (Exception exc)
+                                        {
+                                            _ = _toastService.ShowErrorToastAsync($"Couldn't continue {job.QualifiedName} in {queue.Alias}: {exc.Message}");
+                                        }
+                                }
+                            });
+                }
+
+                result.Add(actionContinue);
+            }
+        }
+
+        #endregion
+
         #region Finalize
 
         {

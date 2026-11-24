@@ -698,6 +698,13 @@ public abstract class Job : RelayBase, IFolderContent
     public void Stage(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (IsContinuingRun)
+        {
+            // The earlier run's files are the input; inputs were staged when it started.
+            StageContinuation();
+            cancellationToken.ThrowIfCancellationRequested();
+            return;
+        }
         ParticleInputs.Stage(this, cancellationToken);
         Stage();
         cancellationToken.ThrowIfCancellationRequested();
@@ -726,6 +733,37 @@ public abstract class Job : RelayBase, IFolderContent
     /// Default is false, but can be overridden for jobs that support checkpointing.
     /// </summary>
     public virtual bool IsResumable => false;
+
+    #region Continuation
+
+    /// <summary>
+    /// Whether this job type can continue a stopped run in place (e.g. after a cluster time limit) instead of
+    /// starting over. See <see cref="BeginContinuation"/>.
+    /// </summary>
+    public virtual bool SupportsContinuation => false;
+
+    /// <summary>
+    /// True while the current (or most recent) run continues an earlier one in place: preparation keeps the job
+    /// directory and calls <see cref="StageContinuation"/> instead of staging inputs again.
+    /// </summary>
+    public virtual bool IsContinuingRun => false;
+
+    /// <summary>Null if the stopped job can be continued now; otherwise the reason it can't.</summary>
+    public virtual string WhyCannotContinue() => "This job type can't continue an earlier run.";
+
+    /// <summary>
+    /// Marks the next run as a continuation of the stopped one. Called through a job update when the
+    /// continuation is queued; throws if <see cref="WhyCannotContinue"/> has a reason.
+    /// </summary>
+    public virtual void BeginContinuation() => throw new InvalidOperationException(WhyCannotContinue());
+
+    /// <summary>Marks the next run as a normal run from scratch.</summary>
+    public virtual void EndContinuation() { }
+
+    /// <summary>Prepares the kept job directory for a continuation run.</summary>
+    protected virtual void StageContinuation() { }
+
+    #endregion
 
     /// <summary>Execution and configuration are controlled inside the expanded view.</summary>
     public virtual bool ControlsOwnExecution => false;

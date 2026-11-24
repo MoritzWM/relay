@@ -585,4 +585,21 @@ public class RelayMcpTools(IHttpContextAccessor contextAccessor, DataManager dat
         }
         return new OkDto(true);
     }
+
+    [McpServerTool(Name = "continue_job"), Description("Continue a failed, aborted or interrupted job in place from its last completely written iteration instead of rerunning it from scratch (e.g. a RELION 2D/3D classification or 3D refinement that hit a cluster time limit). Parameters are unchanged. If the job can't be continued, the error says why.")]
+    public async Task<OkDto> ContinueJob(
+        [Description("The project id.")] int projectId,
+        [Description("The space id.")] int spaceId,
+        [Description("The job id.")] int jobId,
+        [Description("Cluster queue id to run the continuation in (from list_queues).")] int queueId)
+    {
+        var user = CurrentUser();
+        Require(PermTier.Job, AccessLevel.EditRun);
+        var job = dataManager.GetUserProjects(user).FirstOrDefault(p => p.Id == projectId)?.FindSpace(spaceId)?.FindJob(jobId);
+        if (job == null) throw new McpException($"Job {jobId} not found.");
+        var queue = dataManager.FindClusterQueue(queueId);
+        if (queue == null) throw new McpException($"Cluster queue {queueId} not found.");
+        await Invoke(() => dataManager.ContinueJob(user, job, queue));
+        return new OkDto(true);
+    }
 }

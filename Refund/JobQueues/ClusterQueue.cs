@@ -97,7 +97,11 @@ public sealed class ClusterQueue : JobQueue
         Dictionary<string, string> customValues = null,
         CancellationToken cancellationToken = default)
     {
-        job.ResetWorkingDirectory();
+        // A continuation resumes from the files of the stopped run.
+        if (job.IsContinuingRun)
+            job.EnsureWorkingDirectory();
+        else
+            job.ResetWorkingDirectory();
         Directory.CreateDirectory(job.RelayResultsDirectoryPath);
         await job.WriteToLifecycleLog("Preparation started");
         job.Stage(cancellationToken);

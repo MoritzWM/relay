@@ -109,6 +109,18 @@ public class Refine3D : RelionJob, IClusterJob, IPooledJob, IPoolStatus
 
     public override bool CanBeFinalized => true;
 
+    public override bool SupportsContinuation => true;
+
+    // Auto-refine writes one model per half set (separate MPI ranks), so both must be complete.
+    protected override IEnumerable<string> ContinuationFiles(int relionIteration) =>
+    [
+        RelionIterationFile(relionIteration, "optimiser.star"),
+        RelionIterationFile(relionIteration, "half1_model.star"),
+        RelionIterationFile(relionIteration, "half2_model.star"),
+        RelionIterationFile(relionIteration, "data.star"),
+        RelionIterationFile(relionIteration, "sampling.star"),
+    ];
+
     /// <summary>
     /// Port name constants
     /// </summary>
@@ -861,7 +873,7 @@ public class Refine3D : RelionJob, IClusterJob, IPooledJob, IPoolStatus
         if (IsPooled)
             ApplyPoolArguments(result);
 
-        return result;
+        return IsContinuingRun ? ToContinuationArguments(result, AdditionalArguments) : result;
     }
 
     /// <summary>
@@ -983,7 +995,9 @@ public class Refine3D : RelionJob, IClusterJob, IPooledJob, IPoolStatus
                     if (logLines[i].Contains('\r'))
                         logLines[i] = logLines[i].Substring(logLines[i].LastIndexOf('\r') + 1);
 
-                Dictionary<int, int> iterationLines = new() { { 0, 0 } }; // Iteration 0 is always there and starts at 0
+                // Iteration 0 is always there and starts at 0. A continuation's stdout starts with its first iteration
+                // instead, and earlier iterations' logs are kept from the stopped run.
+                Dictionary<int, int> iterationLines = new() { { ContinuingFromIteration, 0 } };
 
                 for (int i = 0; i < logLines.Length; i++)
                 {
@@ -991,11 +1005,9 @@ public class Refine3D : RelionJob, IClusterJob, IPooledJob, IPoolStatus
                     {
                         string[] parts = logLines[i].Split('=', StringSplitOptions.TrimEntries);
 
-                        try
-                        {
-                            iterationLines[int.Parse(parts[1].Trim())] = i;
-                        }
-                        catch { }
+                        if (int.TryParse(parts[1].Trim(), out int iteration) &&
+                            (ContinuingFromIteration == 0 || iteration > ContinuingFromIteration))
+                            iterationLines[iteration] = i;
                     }
                 }
 

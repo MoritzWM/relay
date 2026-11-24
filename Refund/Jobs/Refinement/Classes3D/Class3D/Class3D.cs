@@ -152,10 +152,10 @@ public class Class3D : RelionJob, IClusterJob, IPooledJob, IPoolStatus
     public override int ProcessCount => IsPooled ? 1 : NProcesses;
 
     public override bool CanBeFinalized => true;
-    
-    [Clearable]
-    [RelayProperty]
-    public int ContinuingFromIteration { get; set; } = 0;
+
+    public override bool SupportsContinuation => true;
+
+    protected override int? TotalRelionIterations => NIterations;
 
     #region Parameters
 
@@ -1045,7 +1045,7 @@ public class Class3D : RelionJob, IClusterJob, IPooledJob, IPoolStatus
         if (IsPooled)
             ApplyPoolArguments(result);
 
-        return result;
+        return IsContinuingRun ? ToContinuationArguments(result, AdditionalArguments) : result;
     }
 
     /// <summary>
@@ -1317,7 +1317,11 @@ public class Class3D : RelionJob, IClusterJob, IPooledJob, IPoolStatus
         bool HasFinished = File.Exists(PathSuccess);
 
         // Check each iteration to see if results exist and need visualization
-        for (int ires = ContinuingFromIteration; ires < LogsAvailableIteration + (HasFinished ? 1 : 0); ires++)
+        // A continuation's logs start at ContinuingFromIteration; earlier iterations may still lack figures if the
+        // stopped run was killed before they were made.
+        for (int ires = Math.Min(ContinuingFromIteration, VisAvailableIteration + 1);
+             ires < LogsAvailableIteration + (HasFinished ? 1 : 0);
+             ires++)
         {
             using var figureBatch = BakeryWrapper.BeginBatch();
             // Skip if the result file for the first class doesn't exist

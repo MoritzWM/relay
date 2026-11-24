@@ -267,7 +267,7 @@ public sealed class RelayExecutionOperations : IExecutionOperations
 
     private static async Task PrepareLocalAsync(Job job, CancellationToken cancellationToken)
     {
-        if (job.IsResumable)
+        if (job.IsResumable || job.IsContinuingRun)
             job.EnsureWorkingDirectory();
         else
             job.ResetWorkingDirectory();

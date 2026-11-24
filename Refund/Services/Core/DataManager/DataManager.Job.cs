@@ -504,7 +504,7 @@ public partial class DataManager
     /// Local execution means the job will run on the same machine where the Relay server is running.
     /// </remarks>
     public Task QueueLocalJob(ReadOnlyUser user, ReadOnlyJob job) =>
-        QueueJob(user, job, _queueRepository.LocalQueue.AsReadOnly());
+        QueueJob(user, job, _queueRepository.LocalQueue.AsReadOnly(), continuation: false);
 
     /// <summary>
     /// Queues a job for execution on a remote cluster.
@@ -525,9 +525,17 @@ public partial class DataManager
     /// which typically offers more computational resources than the local machine.
     /// </remarks>
     public Task QueueClusterJob(ReadOnlyUser user, ReadOnlyJob job, ReadOnlyJobQueue queue) =>
-        QueueJob(user, job, queue);
+        QueueJob(user, job, queue, continuation: false);
 
-    private async Task QueueJob(ReadOnlyUser user, ReadOnlyJob job, ReadOnlyJobQueue queue)
+    /// <summary>
+    /// Continues a failed, aborted or interrupted job in place from its last completely written iteration
+    /// (e.g. after a cluster time limit), instead of clearing it and starting over. Parameters stay as they were;
+    /// the queue may differ from the stopped run's. See <see cref="Job.SupportsContinuation"/>.
+    /// </summary>
+    public Task ContinueJob(ReadOnlyUser user, ReadOnlyJob job, ReadOnlyJobQueue queue) =>
+        QueueJob(user, job, queue, continuation: true);
+
+    private async Task QueueJob(ReadOnlyUser user, ReadOnlyJob job, ReadOnlyJobQueue queue, bool continuation)
     {
         try
         {
@@ -537,8 +545,15 @@ public partial class DataManager
                 var mutableJob = ResolveJob(job.Space.Project.Id, job.Space.Id, job.Id);
                 var mutableQueue = ResolveQueue(queue.Id);
 
-                if (_queueRepository.HasExecutionAttempt(mutableJob) ||
-                    !mutableJob.CanTransitionState(JobStatus.Waiting))
+                if (_queueRepository.HasExecutionAttempt(mutableJob))
+                    throw new Exception("Job cannot be started.");
+                if (continuation)
+                {
+                    // A stopped job goes straight back to Waiting; the attempt's projection sets the status.
+                    if (mutableJob.WhyCannotContinue() is { } reason)
+                        throw new Exception(reason);
+                }
+                else if (!mutableJob.CanTransitionState(JobStatus.Waiting))
                     throw new Exception("Job cannot be started.");
 
                 EnsureJobInputsValid(mutableJob);
@@ -559,6 +574,10 @@ public partial class DataManager
                     {
                         queued.QueueId = mutableQueue.Id;
                         queued.SubmittedByUsername = originalUser.Username;
+                        if (continuation)
+                            queued.BeginContinuation();
+                        else
+                            queued.EndContinuation();
                     });
                 await _queueRepository.QueueJobAsync(mutableJob, mutableQueue);
             });

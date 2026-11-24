@@ -471,6 +471,12 @@ public class Class2D : RelionJob, IClusterJob
     /// EM algorithm saves results every iteration, while VDAM saves every 10 iterations.
     /// </summary>
     public int ResultsEveryNIterations => Algorithm == Class2DAlgorithm.EM ? 1 : 10;
+
+    public override bool SupportsContinuation => true;
+
+    protected override int RelionIterationsPerResult => ResultsEveryNIterations;
+
+    protected override int? TotalRelionIterations => Algorithm == Class2DAlgorithm.EM ? NIterationsEM : NIterationsVDAM;
     
     #region Results paths
     
@@ -679,7 +685,7 @@ public class Class2D : RelionJob, IClusterJob
         // Set output prefix path
         result["o"] = Space.GetRelativePath(Path.Combine(DirectoryPath, "run"));
 
-        return result;
+        return IsContinuingRun ? ToContinuationArguments(result, AdditionalArguments) : result;
     }
 
     private long LastLogSize = -1;
@@ -726,31 +732,42 @@ public class Class2D : RelionJob, IClusterJob
                 // Map iterations to their starting line in the log file
                 Dictionary<int, int> IterationLines = new() { { 0, 0 } };   // Iteration 0 is always there and starts at 0
 
-                // Parse log to find iteration boundaries
+                // Each RELION iteration starts with one of these lines; collect them in order
+                List<int> IterationStarts = new();
                 for (int i = 0; i < LogLines.Length; i++)
                 {
                     if (LogLines[i].StartsWith(" Auto-refine: Estimated"))
                     {
-                        try
-                        {
-                            IterationLines[IterationLines.Count] = i;
-                        }
-                        catch { }
-
+                        IterationStarts.Add(i);
                         i++;
                     }
                     else if (LogLines[i].StartsWith(" CurrentResolution"))
                     {
-                        try
-                        {
-                            IterationLines[IterationLines.Count] = i;
-                        }
-                        catch { }
+                        IterationStarts.Add(i);
                     }
                 }
 
+                if (ContinuingFromIteration > 0)
+                {
+                    // A continuation's stdout starts with the first logical iteration after the continued one, which
+                    // RELION numbers (ContinuingFromIteration - 1) * N + 1. A new logical iteration starts with every
+                    // N-th RELION iteration after that.
+                    int N = ResultsEveryNIterations;
+                    int continuedRelionIteration = (ContinuingFromIteration - 1) * N;
+                    IterationLines = new() { { ContinuingFromIteration, 0 } };
+                    for (int k = 1; k < IterationStarts.Count; k++)
+                    {
+                        int relionIteration = continuedRelionIteration + k + 1;
+                        if ((relionIteration - 1) % N == 0)
+                            IterationLines[(relionIteration + N - 1) / N] = IterationStarts[k];
+                    }
+                }
+                else
+                    foreach (int line in IterationStarts)
+                        IterationLines[IterationLines.Count] = line;
+
                 // Adjust iteration numbers if using VDAM which only saves every N iterations
-                if (ResultsEveryNIterations > 1)
+                if (ResultsEveryNIterations > 1 && ContinuingFromIteration == 0)
                 {
                     Dictionary<int, int> NewIterationLines = new() { { 0, 0 } };
 
@@ -818,7 +835,10 @@ public class Class2D : RelionJob, IClusterJob
         bool HasFinished = File.Exists(ResJobExitSuccessFile);
 
         // Loop through iterations we know exist from log tracking
-        for (int ires = 0; ires < LogsAvailableIteration + (HasFinished ? 1 : 0); ires++)
+        // Earlier iterations of a continued run may have been cleaned; start where figures are missing.
+        for (int ires = Math.Min(ContinuingFromIteration, VisAvailableIteration + 1);
+             ires < LogsAvailableIteration + (HasFinished ? 1 : 0);
+             ires++)
         {
             // Stop if we can't find result files for this iteration
             if (!File.Exists(ResClassesFile(ires)))

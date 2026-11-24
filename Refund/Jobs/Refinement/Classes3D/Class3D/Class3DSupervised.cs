@@ -112,6 +112,10 @@ public class Class3DSupervised : Class3D
         // Start with base arguments from Class3D
         var result = base.ComposeCommandArguments();
 
+        // References and class count come from the optimiser file when continuing.
+        if (IsContinuingRun)
+            return result;
+
         result["ref"] = Space.GetRelativePath(ResReferenceModelStarFile);
 
         bool needsFirstIterCc = false;
