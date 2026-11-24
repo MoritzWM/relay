@@ -47,6 +47,12 @@ public class InitialReference : RelionJob, IClusterJob
 
     public int ResultsEveryNIterations { get; set; } = 10;
 
+    public override bool SupportsContinuation => true;
+
+    protected override int RelionIterationsPerResult => ResultsEveryNIterations;
+
+    protected override int? TotalRelionIterations => NIterations;
+
     public override int CoreCount => NThreads;
 
     public override int MemoryGb => MemoryPerWorker;
@@ -363,7 +369,7 @@ public class InitialReference : RelionJob, IClusterJob
 
         result["o"] = Space.GetRelativePath(Path.Combine(DirectoryPath, "run"));
 
-        return result;
+        return IsContinuingRun ? ToContinuationArguments(result, AdditionalArguments) : result;
     }
 
     private long LastLogSize = -1;
@@ -397,15 +403,13 @@ public class InitialReference : RelionJob, IClusterJob
 
                 Dictionary<int, int> iterationLines = new() { { 0, 0 } }; // Iteration 0 is always there and starts at 0
 
+                // Each RELION iteration starts with one of these lines; collect them in order
+                List<int> iterationStarts = new();
                 for (int i = 0; i < logLines.Length; i++)
                 {
                     if (logLines[i].StartsWith(" Auto-refine: Estimated"))
                     {
-                        //try
-                        {
-                            iterationLines[iterationLines.Count] = i;
-                        }
-                        //catch { }
+                        iterationStarts.Add(i);
 
                         while (i < logLines.Length && logLines[i].StartsWith(" Auto-refine:"))
                             i++;
@@ -414,15 +418,30 @@ public class InitialReference : RelionJob, IClusterJob
                     }
                     else if (logLines[i].StartsWith(" CurrentResolution"))
                     {
-                        //try
-                        {
-                            iterationLines[iterationLines.Count] = i;
-                        }
-                        //catch { }
+                        iterationStarts.Add(i);
                     }
                 }
 
-                if (ResultsEveryNIterations > 1)
+                if (ContinuingFromIteration > 0)
+                {
+                    // A continuation's stdout starts with the first logical iteration after the continued one, which
+                    // RELION numbers (ContinuingFromIteration - 1) * N + 1. A new logical iteration starts with every
+                    // N-th RELION iteration after that.
+                    int n = Math.Max(1, ResultsEveryNIterations);
+                    int continuedRelionIteration = (ContinuingFromIteration - 1) * n;
+                    iterationLines = new() { { ContinuingFromIteration, 0 } };
+                    for (int k = 1; k < iterationStarts.Count; k++)
+                    {
+                        int relionIteration = continuedRelionIteration + k + 1;
+                        if ((relionIteration - 1) % n == 0)
+                            iterationLines[(relionIteration + n - 1) / n] = iterationStarts[k];
+                    }
+                }
+                else
+                    foreach (int line in iterationStarts)
+                        iterationLines[iterationLines.Count] = line;
+
+                if (ResultsEveryNIterations > 1 && ContinuingFromIteration == 0)
                 {
                     Dictionary<int, int> newIterationLines = new() { { 0, 0 } };
 
@@ -509,7 +528,10 @@ public class InitialReference : RelionJob, IClusterJob
         int maxResultsExist = -1;
         bool hasFinished = File.Exists(PathSuccess);
 
-        for (int ires = 0; ires < LogsAvailableIteration + (hasFinished ? 1 : 0); ires++)
+        // Earlier iterations of a continued run may have been cleaned; start where figures are missing.
+        for (int ires = Math.Min(ContinuingFromIteration, VisAvailableIteration + 1);
+             ires < LogsAvailableIteration + (hasFinished ? 1 : 0);
+             ires++)
         {
             using var figureBatch = BakeryWrapper.BeginBatch();
             if (!File.Exists(ResMapFile(ires, 1)))

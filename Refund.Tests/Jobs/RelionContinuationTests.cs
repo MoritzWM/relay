@@ -2,6 +2,7 @@ using Refund.DataModel;
 using Refund.JobResources;
 using Refund.Jobs.Refinement.Classes2D.Class2D;
 using Refund.Jobs.Refinement.Classes3D.Class3D;
+using Refund.Jobs.Refinement.InitialModel.InitialReference3D;
 using Refund.Jobs.Refinement.Refinement3D.Refine3D;
 
 namespace Refund.Tests.Jobs;
@@ -277,6 +278,52 @@ public sealed class RelionContinuationTests : IDisposable
         Assert.Equal("preamble", File.ReadAllText(job.LogFilePath(0)).Trim());
         Assert.Contains("iteration 10", File.ReadAllText(job.LogFilePath(1)));
         Assert.Contains("iteration 11", File.ReadAllText(job.LogFilePath(2)));
+    }
+
+    [Fact]
+    public void InitialModelContinuesFromWrittenResultsWithoutRestartingDeNovo()
+    {
+        var job = Connect(new InitialReference { NIterations = 100, NClasses = 2, Symmetry = "D7", ApplySymmetryLater = true });
+        string[] files = ["optimiser.star", "model.star", "data.star", "sampling.star", "class001.mrc"];
+        WriteIteration(job, 30, files);
+        WriteIteration(job, 37, files); // never a VDAM result iteration
+        WriteIteration(job, 40, "optimiser.star", "model.star"); // killed while writing
+
+        Assert.Equal(30, job.FindContinuableIteration());
+        job.BeginContinuation();
+        Assert.Equal(4, job.ContinuingFromIteration);
+
+        var args = job.ComposeCommandArguments();
+        Assert.Equal("12/run_it030_optimiser.star", args["continue"]);
+        Assert.Equal("12/./run", args["o"]);
+        // Gradient mode, de novo reference, classes and symmetry come from the optimiser file.
+        foreach (string key in new[] { "i", "ios", "grad", "denovo_3dref", "K", "sym", "iter", "pad", "healpix_order" })
+            Assert.False(args.ContainsKey(key), key);
+
+        // stdout starts at RELION iteration 31; logical iteration 5 starts at RELION iteration 41.
+        var lines = new List<string> { "preamble" };
+        for (int it = 31; it <= 42; it++)
+        {
+            lines.Add(" CurrentResolution= 10");
+            lines.Add($"iteration {it}");
+        }
+        File.WriteAllText(job.PathStdOut, string.Join('\n', lines));
+
+        job.TrackProgressLogs()?.Invoke();
+
+        Assert.Equal(5, job.LogsAvailableIteration);
+        Assert.Contains("iteration 31", File.ReadAllText(job.LogFilePath(4)));
+        Assert.DoesNotContain("iteration 41", File.ReadAllText(job.LogFilePath(4)));
+        Assert.Contains("iteration 41", File.ReadAllText(job.LogFilePath(5)));
+    }
+
+    [Fact]
+    public void InitialModelRefusesOnceAllIterationsAreWritten()
+    {
+        var job = Connect(new InitialReference { NIterations = 100 });
+        WriteIteration(job, 100, Complete);
+
+        Assert.Contains("Finalize", job.WhyCannotContinue());
     }
 
     [Fact]

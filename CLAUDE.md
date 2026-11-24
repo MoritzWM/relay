@@ -248,7 +248,7 @@ updates. Parameters, input connections, and consumed upstream files cannot chang
 
 `DataManager.ContinueJob(user, job, queue)` (menu "Continue job", MCP `continue_job`) resumes a Failed,
 Aborted or Interrupted job in place instead of rerunning it, for types with `SupportsContinuation`
-(RELION Class2D, Class3D and variants, Refine3D; see `RelionJob`'s Continuation region). The new
+(RELION Class2D, Class3D and variants, Refine3D, InitialReference; see `RelionJob`'s Continuation region). The new
 attempt keeps the job directory and calls `StageContinuation` instead of staging inputs. RELION jobs
 continue from the newest iteration whose optimiser/model/data/sampling files all exist, passing only
 compute options plus `--continue`; `--o` is spelled differently from the optimiser's stored root
